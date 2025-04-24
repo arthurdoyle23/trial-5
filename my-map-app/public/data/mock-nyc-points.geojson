@@ -9187,25 +9187,25 @@
             "-9.47053007"
           ]
         },
-        "properties": {
-          "Year": 2019,
-          "Delivering_Country": "China",
-          "Receiving_Countries": "Papua New Guinea",
-          "Diplomacy_category": "Military Medical Diplomacy",
-          "Comments": "Varo welcomes Chinese Navy to PNG",
-          "Source": "https://www.postcourier.com.pg/varo-welcomes-chinese-navy-to-png/",
-          "Colour": "Specific"
-        }
-      },
-      {
-        "type": "Feature",
-        "geometry": {
-          "type": "Point",
-          "coordinates": [
-            -175.2021053,
-            "-21.13308552"
-          ]
+          "properties": {
+            "Year": 2019,
+            "Delivering_Country": "China",
+            "Receiving_Countries": "Papua New Guinea",
+            "Diplomacy_category": "Military Medical Diplomacy",
+            "Comments": "Varo welcomes Chinese Navy to PNG",
+            "Source": "https://www.postcourier.com.pg/varo-welcomes-chinese-navy-to-png/",
+            "Colour": "Specific"
+          }
         },
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "Point",
+            "coordinates": [
+              -175.2021053,
+              "-21.13308552"
+            ]
+          },
         "properties": {
           "Year": 2022,
           "Delivering_Country": "Australia",
