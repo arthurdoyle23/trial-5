@@ -4,6 +4,8 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css'
 
+import Spiderfy from '@nazka/map-gl-js-spiderfy';
+
  const INITIAL_CENTER = [
    -74.0242,
    40.6941
@@ -35,11 +37,24 @@ function App() {
       setZoom(mapZoom)
     })
 
+    new mapboxgl.Marker()
+    .setLngLat([-74.02, 40.69])
+    .addTo(mapRef.current);
+
+  new mapboxgl.Marker({ color: 'black', rotation: 45 })
+    .setLngLat([-74.02, 40.65])
+    .addTo(mapRef.current);
+
    return () => {
      mapRef.current.remove()
    }
  }, [])
 
+
+
+
+
+ 
  return (
    <>
       <div className="sidebar">

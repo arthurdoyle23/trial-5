@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@nazka/map-gl-js-spiderfy": "^1.2.6",
     "mapbox-gl": "^3.11.0"
   }
 }
