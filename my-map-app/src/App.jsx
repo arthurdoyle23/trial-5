@@ -3,6 +3,18 @@ import mapboxgl from 'mapbox-gl';
 import Spiderfy from '@nazka/map-gl-js-spiderfy';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
+import { registerPopups } from './popups';
+
+
+// === Section 1: Define category → icon mapping ===
+// Make sure these icons are placed in public/icons/
+const categoryIcons = {
+  'Defence Cooperation':       { id: 'defence-cooperation',   url: '/icons/defence-cooperation.png' },
+  'Military Exercises':        { id: 'military-exercises',     url: '/icons/military-exercises.png'   },
+  'Visit Diplomacy (Defence)': { id: 'visit-diplomacy',        url: '/icons/visit-diplomacy.png'      },
+  'Training':                  { id: 'training',               url: '/icons/training.png'             }
+};
+const defaultIcon = { id: 'default', url: '/icons/default.png' };
 
 const INITIAL_CENTER = [-74.0242, 40.6941];
 const INITIAL_ZOOM = 10.12;
@@ -95,6 +107,8 @@ function App() {
             zoomIncrement: 2
           });
           spiderfy.applyTo('clusters');
+          // inside your map.load callback, after spiderfy.applyTo('clusters'):
+registerPopups(map);
         }
       );
     });
