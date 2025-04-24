@@ -1,11 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import Spiderfy from '@nazka/map-gl-js-spiderfy';
+// Add this import at the top of your App.jsx file, after the other imports:
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
+import './SpiderfyOverrides.css'; // Make sure this is added
 import { registerPopups } from './popups';
 
-// === Section 1: Define category → icon mapping ===//
+// ========== CONFIGURATION ==========
+// Icon configuration for different categories
 const categoryIcons = {
   'Arms control':                 { id: 'icon-arms-control',            url: '/icons/icon-arms-control.png' },
   'Cultural Diplomacy (Defence)':  { id: 'icon-cultural-diplomacy',      url: '/icons/icon-cultural.png' },
@@ -23,33 +26,38 @@ const categoryIcons = {
 };
 const defaultIcon = { id: 'default', url: '/icons/default.png' };
 
-// Updated initial view parameters
-const INITIAL_CENTER = [163.7482, -12.7648]; // New coordinates
-const INITIAL_ZOOM = 3.5;                    // New starting zoom
-const INTERMEDIATE_ZOOM = 7.5;               // Intermediate zoom level
-const MIN_SPIDERFY_ZOOM = 9.99;              // Minimum zoom level for spiderfy to work
-const MAX_ZOOM = 13.01;                      // Maximum zoom level allowed
-const MAX_SPIDERFY_POINTS = 40;              // Maximum number of points to allow spiderfying
+// Map view parameters
+const MAP_CONFIG = {
+  CENTER: [163.7482, -12.7648],
+  INITIAL_ZOOM: 3.5,
+  INTERMEDIATE_ZOOM: 7.5,
+  MIN_SPIDERFY_ZOOM: 6.99,
+  MAX_ZOOM: 13.01,
+  MAX_SPIDERFY_POINTS: 40,
+  MAPBOX_TOKEN: 'pk.eyJ1IjoiYXJ0aHVyZG95bGUiLCJhIjoiY2xydjZ5eWtxMHBnZjJsbGVnem45bThkMSJ9.hdDK5cGCjnsrRacePPlabQ'
+};
 
 export default function App() { 
+  // ========== STATE AND REFS ==========
   const mapRef = useRef(null);
   const spiderfyRef = useRef(null);
   const mapContainerRef = useRef(null);
-  const [center, setCenter] = useState(INITIAL_CENTER);
-  const [zoom,   setZoom]   = useState(INITIAL_ZOOM);
+  const [center, setCenter] = useState(MAP_CONFIG.CENTER);
+  const [zoom, setZoom] = useState(MAP_CONFIG.INITIAL_ZOOM);
 
   useEffect(() => {
-    mapboxgl.accessToken = 'pk.eyJ1IjoiYXJ0aHVyZG95bGUiLCJhIjoiY2xydjZ5eWtxMHBnZjJsbGVnem45bThkMSJ9.hdDK5cGCjnsrRacePPlabQ';
+    // ========== MAP INITIALIZATION ==========
+    mapboxgl.accessToken = MAP_CONFIG.MAPBOX_TOKEN;
 
     const map = mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: INITIAL_CENTER,
-      zoom: INITIAL_ZOOM,
-      maxZoom: MAX_ZOOM // Set maximum zoom level
+      center: MAP_CONFIG.CENTER,
+      zoom: MAP_CONFIG.INITIAL_ZOOM,
+      maxZoom: MAP_CONFIG.MAX_ZOOM
     });
 
-    // Update view state
+    // Update state when map moves
     map.on('move', () => {
       const { lng, lat } = map.getCenter();
       setCenter([lng, lat]);
@@ -57,519 +65,43 @@ export default function App() {
     });
 
     map.on('load', () => {
-      console.log("Map loaded, setting up icon loading");
-      
-      // Add a loading indicator to the map
-      const loadingEl = document.createElement('div');
-      loadingEl.className = 'loading-indicator';
-      loadingEl.textContent = 'Loading map icons...';
-      loadingEl.style.position = 'absolute';
-      loadingEl.style.top = '50%';
-      loadingEl.style.left = '50%';
-      loadingEl.style.transform = 'translate(-50%, -50%)';
-      loadingEl.style.padding = '10px';
-      loadingEl.style.borderRadius = '5px';
-      loadingEl.style.backgroundColor = 'rgba(255,255,255,0.8)';
-      loadingEl.style.zIndex = '1000';
+      // ========== LOADING INDICATOR ==========
+      const loadingEl = createLoadingIndicator();
       mapContainerRef.current.appendChild(loadingEl);
       
-      // Load all category icons first
-      const loadIcons = () => {
-        console.log("Starting to load icons");
-        return new Promise((resolve, reject) => {
-          // Add all category icons
-          const iconPromises = [];
+      // ========== ICON LOADING ==========
+      loadAllIcons(map)
+        .then(() => {
+          // Remove loading indicator
+          mapContainerRef.current?.removeChild(loadingEl);
           
-          // Load the default icon first
-          const defaultIconPromise = new Promise((resolveIcon, rejectIcon) => {
-            console.log("Loading default icon from:", defaultIcon.url);
-            
-            // Test if we can directly access the icon
-            const testImg = new Image();
-            testImg.onload = () => {
-              console.log("Default icon is accessible");
-              map.loadImage(defaultIcon.url, (err, img) => {
-                if (err) {
-                  console.error('Failed to load default icon:', err);
-                  // Fallback to a basic circle icon
-                  createFallbackCircleIcon(map, defaultIcon.id);
-                  resolveIcon();
-                  return;
-                }
-                map.addImage(defaultIcon.id, img);
-                resolveIcon();
-              });
-            };
-            testImg.onerror = () => {
-              console.error("Default icon is not accessible - using fallback");
-              createFallbackCircleIcon(map, defaultIcon.id);
-              resolveIcon();
-            };
-            testImg.src = defaultIcon.url;
-          });
-          iconPromises.push(defaultIconPromise);
+          // ========== DATA SOURCE SETUP ==========
+          addDataSource(map);
           
-          // Load each category icon
-          Object.values(categoryIcons).forEach(icon => {
-            const iconPromise = new Promise((resolveIcon, rejectIcon) => {
-              console.log(`Loading category icon: ${icon.id}`);
-              
-              // Test if we can directly access the icon
-              const testImg = new Image();
-              testImg.onload = () => {
-                console.log(`Icon ${icon.id} is accessible`);
-                map.loadImage(icon.url, (err, img) => {
-                  if (err) {
-                    console.error(`Failed to load icon ${icon.id}:`, err);
-                    // Fallback to a basic circle icon
-                    createFallbackCircleIcon(map, icon.id);
-                    resolveIcon();
-                    return;
-                  }
-                  map.addImage(icon.id, img);
-                  resolveIcon();
-                });
-              };
-              testImg.onerror = () => {
-                console.error(`Icon ${icon.id} is not accessible - using fallback`);
-                createFallbackCircleIcon(map, icon.id);
-                resolveIcon();
-              };
-              testImg.src = icon.url;
-            });
-            iconPromises.push(iconPromise);
-          });
+          // ========== LAYER SETUP ==========
+          addClusterLayers(map);
+          addUnclusteredPointLayer(map);
           
-          // Also load the cluster icon
-          const clusterIconPromise = new Promise((resolveIcon, rejectIcon) => {
-            map.loadImage(
-              'https://raw.githubusercontent.com/nazka/map-gl-js-spiderfy/dev/demo/img/circle-yellow.png',
-              (err, img) => {
-                if (err) {
-                  console.error('Failed to load cluster icon:', err);
-                  // Create a yellow circle as fallback
-                  const canvas = document.createElement('canvas');
-                  canvas.width = 30;
-                  canvas.height = 30;
-                  const ctx = canvas.getContext('2d');
-                  ctx.fillStyle = '#ffe600';
-                  ctx.beginPath();
-                  ctx.arc(15, 15, 12, 0, 2 * Math.PI);
-                  ctx.fill();
-                  ctx.strokeStyle = '#000';
-                  ctx.lineWidth = 1;
-                  ctx.stroke();
-                  map.addImage('cluster-icon', { width: 30, height: 30, data: ctx.getImageData(0, 0, 30, 30).data });
-                  resolveIcon();
-                  return;
-                }
-                map.addImage('cluster-icon', img);
-                resolveIcon();
-              }
-            );
-          });
-          iconPromises.push(clusterIconPromise);
+          // ========== EVENT HANDLERS ==========
+          setupUnclusteredPointHandlers(map);
+          setupSpiderfyFunctionality(map);
           
-          // Wait for all icons to load
-          Promise.all(iconPromises)
-            .then(() => {
-              console.log("All icons loaded successfully");
-              // Remove loading indicator
-              mapContainerRef.current.removeChild(loadingEl);
-              resolve();
-            })
-            .catch((err) => {
-              console.error("Error loading icons:", err);
-              // Remove loading indicator
-              mapContainerRef.current.removeChild(loadingEl);
-              reject(err);
-            });
+          // ========== FALLBACK POPUPS ==========
+          registerPopups(map);
+        })
+        .catch(err => {
+          console.error("Error loading icons:", err);
+          mapContainerRef.current?.removeChild(loadingEl);
         });
-      };
-      
-      // Create a fallback circle icon if the image doesn't load
-      const createFallbackCircleIcon = (map, iconId) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 24;
-        canvas.height = 24;
-        const ctx = canvas.getContext('2d');
-        
-        // Random color based on id to differentiate categories
-        const hash = iconId.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0);
-        const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
-        
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(12, 12, 10, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        
-        map.addImage(iconId, { width: 24, height: 24, data: ctx.getImageData(0, 0, 24, 24).data });
-      };
-
-      // Start loading icons
-      loadIcons().then(() => {
-        map.addSource('markers', {
-          type: 'geojson',
-          data: '/data/mock-nyc-points.geojson',
-          cluster: true,
-          clusterMaxZoom: 14,
-          clusterRadius: 50
-        });
-
-        // Cluster layers
-        map.addLayer({
-          id: 'clusters', 
-          type: 'symbol', 
-          source: 'markers', 
-          filter: ['has', 'point_count'],
-          layout: { 
-            'icon-image': 'cluster-icon', 
-            'icon-size': 0.6,
-            'icon-allow-overlap': true 
-          }
-        });
-        
-        map.addLayer({
-          id: 'cluster-count', 
-          type: 'symbol', 
-          source: 'markers',
-
-          filter: ['has', 'point_count'],
-          layout: { 
-            'text-field': ['get', 'point_count_abbreviated'], 
-            'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'], 
-            'text-size': 12
-          }
-        });
-
-        // Unclustered points now use symbols instead of circles
-        map.addLayer({
-          id: 'unclustered-point', 
-          type: 'symbol', 
-          source: 'markers', 
-          filter: ['!', ['has', 'point_count']],
-          layout: {
-            'icon-image': [
-              'match',
-              ['get', 'Diplomacy_category'],
-              // Match each category to its icon
-              'Arms control', 'icon-arms-control',
-              'Cultural Diplomacy (Defence)', 'icon-cultural-diplomacy',
-              'Defence Cooperation', 'icon-defence-cooperation',
-              'Defence Infrastructure', 'icon-defence-infrastructure',
-              'HADR – Disaster Response', 'icon-hadr',
-              'Maritime Security', 'icon-maritime-security',
-              'Military Exercises', 'icon-military-exercises',
-              'Military Medical Diplomacy', 'icon-military-medical',
-              'MIL-POL Engagement', 'icon-milpol',
-              'Public Diplomacy', 'icon-public-diplomacy',
-              'Sports Diplomacy (Defence)', 'icon-sports-diplomacy',
-              'Training', 'icon-training',
-              'Visit Diplomacy (Defence)', 'icon-visit-diplomacy',
-              // Default icon for any other category
-              'default'
-            ],
-            'icon-size': 0.5, // Adjust size as needed
-            'icon-allow-overlap': true,
-            'icon-anchor': 'bottom', // Anchor at bottom so icon "points" to location
-            'icon-offset': [0, 0]  // Adjust offset if needed
-          },
-          paint: {
-            // Add a halo effect to make icons more visible
-            'icon-halo-color': '#ffffff',
-            'icon-halo-width': 1,
-            'icon-halo-blur': 1
-          }
-        });
-
-        // Unclustered hover popup
-        let currentUnclusteredPopup = null;
-        map.on('mouseenter', 'unclustered-point', (e) => {
-          map.getCanvas().style.cursor = 'pointer';
-          const feature = e.features[0];
-          const props = feature.properties;
-          const coords = feature.geometry.coordinates.slice();
-          const html = `
-            <strong>Category:</strong> ${props.Diplomacy_category}<br/>
-            <strong>From:</strong> ${props.Delivering_Country}<br/>
-            <strong>To:</strong> ${props.Receiving_Countries}<br/>
-            <strong>Year:</strong> ${props.Year}<br/>
-            ${props.Comments ? `<em>${props.Comments}</em>` : ''}
-          `;
-          currentUnclusteredPopup = new mapboxgl.Popup({ offset: [0,-20], closeButton: false, closeOnClick: false })
-            .setLngLat(coords)
-            .setHTML(html)
-            .addTo(map);
-        });
-        
-        map.on('mouseleave', 'unclustered-point', () => {
-          map.getCanvas().style.cursor = '';
-          if (currentUnclusteredPopup) {
-            currentUnclusteredPopup.remove();
-            currentUnclusteredPopup = null;
-          }
-        });
-
-        // Unclustered click popup
-        map.on('click', 'unclustered-point', (e) => {
-          const feature = e.features[0];
-          const props = feature.properties;
-          const coords = feature.geometry.coordinates.slice();
-          const html = `
-            <strong>Category:</strong> ${props.Diplomacy_category}<br/>
-            <strong>From:</strong> ${props.Delivering_Country}<br/>
-            <strong>To:</strong> ${props.Receiving_Countries}<br/>
-            <strong>Year:</strong> ${props.Year}<br/>
-            ${props.Comments ? `<em>${props.Comments}</em>` : ''}
-          `;
-          new mapboxgl.Popup({ offset: [0,-20] })
-            .setLngLat(coords)
-            .setHTML(html)
-            .addTo(map);
-        });
-
-        // Spiderfy clusters with custom icons
-        let currentSpiderPopup = null;
-        const spiderfy = spiderfyRef.current = new Spiderfy(map, {
-          // Use HTML elements for markers instead of the default symbols
-          generateLeaves: true,
-          // Custom marker creation function for spiderfied points
-          customMarkerCallback: feature => {
-            // Get the category and corresponding icon
-            const category = feature.properties.Diplomacy_category;
-            const iconInfo = categoryIcons[category] || defaultIcon;
-            
-            // Create a custom HTML element for the marker
-            const el = document.createElement('div');
-            el.className = 'custom-marker';
-            
-            // Create a DOM element for testing image availability
-            const testImg = new Image();
-            testImg.onload = () => {
-              // Image exists, use it
-              el.style.backgroundImage = `url(${iconInfo.url})`;
-            };
-            testImg.onerror = () => {
-              // Image doesn't exist, use a fallback color based on category
-              const hash = category ? 
-                category.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0) : 
-                0;
-              const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
-              
-              el.style.backgroundColor = color;
-              el.style.border = '2px solid white';
-              el.style.borderRadius = '50%';
-            };
-            testImg.src = iconInfo.url;
-            
-            // Set default styles that apply regardless of image loading
-            el.style.width = '30px';
-            el.style.height = '30px';
-            el.style.cursor = 'pointer';
-            
-            // Add a tooltip with category name
-            el.title = category || 'Unknown';
-            
-            return el;
-          },
-          onLeafClick: feature => {
-            const coords = feature.geometry.coordinates;
-            const props = feature.properties;
-            const html = `
-              <strong>Category:</strong> ${props.Diplomacy_category}<br/>
-              <strong>From:</strong> ${props.Delivering_Country}<br/>
-              <strong>To:</strong> ${props.Receiving_Countries}<br/>
-              <strong>Year:</strong> ${props.Year}<br/>
-              ${props.Comments ? `<em>${props.Comments}</em>` : ''}
-            `;
-            new mapboxgl.Popup({ offset: [0,-20] })
-              .setLngLat(coords)
-              .setHTML(html)
-              .addTo(map);
-          },
-          onLeafHover: (feature, event) => {
-            if (currentSpiderPopup) currentSpiderPopup.remove();
-            const lngLat = map.unproject(event.point);
-            const props = feature.properties;
-            const html = `
-              <strong>Category:</strong> ${props.Diplomacy_category}<br/>
-              <strong>From:</strong> ${props.Delivering_Country}<br/>
-              <strong>To:</strong> ${props.Receiving_Countries}<br/>
-              <strong>Year:</strong> ${props.Year}<br/>
-              ${props.Comments ? `<em>${props.Comments}</em>` : ''}
-            `;
-            currentSpiderPopup = new mapboxgl.Popup({ offset: [0,-20], closeButton: false, closeOnClick: false })
-              .setLngLat(lngLat)
-              .setHTML(html)
-              .addTo(map);
-          },
-          onLeafHoverEnd: () => {
-            if (currentSpiderPopup) {
-              currentSpiderPopup.remove();
-              currentSpiderPopup = null;
-            }
-          },
-          minZoomLevel: MIN_SPIDERFY_ZOOM, // Set minimum zoom level for spiderfy
-          maxZoomLevel: MAX_ZOOM, // Set maximum zoom level for spiderfy
-          zoomIncrement: 4.5,
-          // Marker styling
-          circleSpiralSwitchover: 9, // Show spiral instead of circle from this marker count
-          circleFootSeparation: 28, // related to distance between circle points (increased)
-          spiralFootSeparation: 30, // related to distance between spiral points (increased)
-          spiralLengthFactor: 4.5, // makes spiral tighter or looser
-          spiralLengthStart: 12, // inner start length of spiral
-          leafClassName: 'mapboxgl-spiderfy-leaf', // Class name for leaf markers
-          animate: true,
-          animationSpeed: 300
-        });
-        
-        // Apply spiderfy to cluster layer and log success
-        console.log("Applying spiderfy to clusters");
-        spiderfy.applyTo('clusters');
-        console.log("Spiderfy applied successfully");
-
-        // Flag to track if we're preventing spiderfying due to point count
-        let isSpiderfyingPrevented = false;
-
-        // Keep track of any open large cluster popup
-        let largeClusterPopup = null;
-
-        // Custom click handler for clusters with staged zoom levels and point count limit
-        map.on('click', 'clusters', (e) => {
-          const currentZoom = map.getZoom();
-          const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-          const clusterId = features[0].properties.cluster_id;
-          const pointCount = features[0].properties.point_count;
-          const clusterCoords = features[0].geometry.coordinates;
-          
-          // Clear any existing large cluster popup
-          if (largeClusterPopup) {
-            largeClusterPopup.remove();
-            largeClusterPopup = null;
-          }
-          
-          // Check if we're at spiderfy zoom level
-          if (currentZoom >= MIN_SPIDERFY_ZOOM && currentZoom <= MAX_ZOOM) {
-            // Only proceed with spiderfy if point count is under threshold
-            if (pointCount >= MAX_SPIDERFY_POINTS) {
-              // Too many points - show a message and zoom in further
-              largeClusterPopup = new mapboxgl.Popup()
-                .setLngLat(clusterCoords)
-                .setHTML(`<p>Too many points to display (${pointCount}). Zooming in further.</p>`)
-                .addTo(map);
-              
-              // Set a flag to prevent spiderfying
-              isSpiderfyingPrevented = true;
-              
-              // Zoom in more to break up the cluster
-              map.easeTo({
-                center: clusterCoords,
-                zoom: Math.min(currentZoom + 1.5, MAX_ZOOM)
-              });
-              
-              // Clear the prevention flag after a short delay
-              setTimeout(() => {
-                isSpiderfyingPrevented = false;
-              }, 1000);
-              
-              return;
-            }
-            
-            // Allow spiderfying for smaller clusters (let default handler work)
-            if (!isSpiderfyingPrevented) {
-              return;
-            }
-          } else if (currentZoom < INTERMEDIATE_ZOOM) {
-            // From initial zoom to intermediate zoom
-            map.easeTo({
-              center: clusterCoords,
-              zoom: INTERMEDIATE_ZOOM
-            });
-          } else if (currentZoom < MIN_SPIDERFY_ZOOM) {
-            // From intermediate zoom to spiderfy zoom
-            map.easeTo({
-              center: clusterCoords,
-              zoom: MIN_SPIDERFY_ZOOM
-            });
-          }
-        });
-
-        // Intercept cluster clicks for the Spiderfy library
-        const originalSpiderfyClick = spiderfy._handleClusterClick;
-        spiderfy._handleClusterClick = function(e) {
-          // Get cluster details
-          const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-          if (features.length > 0) {
-            const pointCount = features[0].properties.point_count;
-            
-            // Only allow spiderfying if point count is under threshold
-            if (pointCount < MAX_SPIDERFY_POINTS && !isSpiderfyingPrevented) {
-              originalSpiderfyClick.call(this, e);
-            }
-          }
-        };
-
-        // Fallback popups
-        registerPopups(map);
-      }).catch(err => {
-        console.error("Error loading icons:", err);
-      });
     });
 
     return () => map.remove();
   }, []);
 
-  // Add CSS for custom markers
+  // ========== CUSTOM CSS ==========
   useEffect(() => {
     const style = document.createElement('style');
-    style.textContent = `
-      .custom-marker {
-        cursor: pointer;
-        z-index: 2;
-        background-size: contain;
-        background-position: center;
-        background-repeat: no-repeat;
-        width: 30px;
-        height: 30px;
-        position: relative;
-      }
-      
-      /* Make sure spiderfied markers are visible */
-      .mapboxgl-spiderfy-leaf {
-        z-index: 100 !important;
-      }
-      
-      /* Ensure proper positioning of markers */
-      .mapboxgl-marker {
-        cursor: pointer;
-      }
-      
-      /* Lines to connect spiderfied points to center */
-      .mapboxgl-spiderfy-line {
-        z-index: 90 !important;
-        stroke-width: 2;
-      }
-      
-      /* Add subtle animation for markers */  
-      .mapboxgl-spiderfy-leaf .custom-marker {
-        animation: pulse 2s infinite;
-      }
-      
-      @keyframes pulse {
-        0% {
-          transform: scale(1);
-        }
-        50% {
-          transform: scale(1.1);
-        }
-        100% {
-          transform: scale(1);
-        }
-      }
-    `;
+    style.textContent = getCustomCSS();
     document.head.appendChild(style);
     return () => {
       document.head.removeChild(style);
@@ -584,4 +116,509 @@ export default function App() {
       <div id="map-container" ref={mapContainerRef} />
     </>
   );
+}
+
+// ========== HELPER FUNCTIONS ==========
+
+// Creates and returns a loading indicator element
+function createLoadingIndicator() {
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'loading-indicator';
+  loadingEl.textContent = 'Loading map icons...';
+  loadingEl.style.position = 'absolute';
+  loadingEl.style.top = '50%';
+  loadingEl.style.left = '50%';
+  loadingEl.style.transform = 'translate(-50%, -50%)';
+  loadingEl.style.padding = '10px';
+  loadingEl.style.borderRadius = '5px';
+  loadingEl.style.backgroundColor = 'rgba(255,255,255,0.8)';
+  loadingEl.style.zIndex = '1000';
+  return loadingEl;
+}
+
+// Creates a fallback circle icon when image loading fails
+function createFallbackCircleIcon(map, iconId) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 24;
+  canvas.height = 24;
+  const ctx = canvas.getContext('2d');
+  
+  // Random color based on id to differentiate categories
+  const hash = iconId.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0);
+  const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+  
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(12, 12, 10, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  
+  map.addImage(iconId, { width: 24, height: 24, data: ctx.getImageData(0, 0, 24, 24).data });
+}
+
+// Loads all icons (category icons, default icon, cluster icon)
+function loadAllIcons(map) {
+  console.log("Starting to load icons");
+  return new Promise((resolve, reject) => {
+    const iconPromises = [];
+    
+    // Load default icon
+    iconPromises.push(loadIcon(map, defaultIcon.url, defaultIcon.id));
+    
+    // Load category icons
+    Object.values(categoryIcons).forEach(icon => {
+      iconPromises.push(loadIcon(map, icon.url, icon.id));
+    });
+    
+    // Load cluster icon
+    iconPromises.push(
+      loadIcon(
+        map, 
+        'https://raw.githubusercontent.com/nazka/map-gl-js-spiderfy/dev/demo/img/circle-yellow.png',
+        'cluster-icon'
+      )
+    );
+    
+    // Wait for all icons to load
+    Promise.all(iconPromises)
+      .then(() => {
+        console.log("All icons loaded successfully");
+        resolve();
+      })
+      .catch((err) => {
+        console.error("Error loading icons:", err);
+        reject(err);
+      });
+  });
+}
+
+// Loads a single icon with fallback
+function loadIcon(map, url, id) {
+  return new Promise((resolve) => {
+    const testImg = new Image();
+    testImg.onload = () => {
+      console.log(`Icon ${id} is accessible`);
+      map.loadImage(url, (err, img) => {
+        if (err) {
+          console.error(`Failed to load icon ${id}:`, err);
+          createFallbackCircleIcon(map, id);
+          resolve();
+          return;
+        }
+        map.addImage(id, img);
+        resolve();
+      });
+    };
+    testImg.onerror = () => {
+      console.error(`Icon ${id} is not accessible - using fallback`);
+      createFallbackCircleIcon(map, id);
+      resolve();
+    };
+    testImg.src = url;
+  });
+}
+
+// Add the data source to the map
+function addDataSource(map) {
+  map.addSource('markers', {
+    type: 'geojson',
+    data: '/data/mock-nyc-points.geojson',
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50
+  });
+}
+
+// Add cluster layers to the map
+function addClusterLayers(map) {
+  // Cluster symbol layer
+  map.addLayer({
+    id: 'clusters', 
+    type: 'symbol', 
+    source: 'markers', 
+    filter: ['has', 'point_count'],
+    layout: { 
+      'icon-image': 'cluster-icon', 
+      'icon-size': 0.6,
+      'icon-allow-overlap': true 
+    }
+  });
+  
+  // Cluster count layer
+  map.addLayer({
+    id: 'cluster-count', 
+    type: 'symbol', 
+    source: 'markers',
+    filter: ['has', 'point_count'],
+    layout: { 
+      'text-field': ['get', 'point_count_abbreviated'], 
+      'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'], 
+      'text-size': 12
+    }
+  });
+}
+
+// Add unclustered point layer to the map
+function addUnclusteredPointLayer(map) {
+  map.addLayer({
+    id: 'unclustered-point', 
+    type: 'symbol', 
+    source: 'markers', 
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      'icon-image': [
+        'match',
+        ['get', 'Diplomacy_category'],
+        // Match each category to its icon
+        'Arms control', 'icon-arms-control',
+        'Cultural Diplomacy (Defence)', 'icon-cultural-diplomacy',
+        'Defence Cooperation', 'icon-defence-cooperation',
+        'Defence Infrastructure', 'icon-defence-infrastructure',
+        'HADR – Disaster Response', 'icon-hadr',
+        'Maritime Security', 'icon-maritime-security',
+        'Military Exercises', 'icon-military-exercises',
+        'Military Medical Diplomacy', 'icon-military-medical',
+        'MIL-POL Engagement', 'icon-milpol',
+        'Public Diplomacy', 'icon-public-diplomacy',
+        'Sports Diplomacy (Defence)', 'icon-sports-diplomacy',
+        'Training', 'icon-training',
+        'Visit Diplomacy (Defence)', 'icon-visit-diplomacy',
+        // Default icon for any other category
+        'default'
+      ],
+      'icon-size': 0.5,
+      'icon-allow-overlap': true,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, 0]
+    },
+    paint: {
+      'icon-halo-color': '#ffffff',
+      'icon-halo-width': 1,
+      'icon-halo-blur': 1
+    }
+  });
+}
+
+// Set up event handlers for unclustered points
+function setupUnclusteredPointHandlers(map) {
+  let currentUnclusteredPopup = null;
+  
+  // Hover handler for unclustered points
+  map.on('mouseenter', 'unclustered-point', (e) => {
+    map.getCanvas().style.cursor = 'pointer';
+    const feature = e.features[0];
+    const props = feature.properties;
+    const coords = feature.geometry.coordinates.slice();
+    const html = createPopupHTML(props);
+    
+    currentUnclusteredPopup = new mapboxgl.Popup({ 
+      offset: [0,-20], 
+      closeButton: false, 
+      closeOnClick: false 
+    })
+      .setLngLat(coords)
+      .setHTML(html)
+      .addTo(map);
+  });
+  
+  // Mouse leave handler for unclustered points
+  map.on('mouseleave', 'unclustered-point', () => {
+    map.getCanvas().style.cursor = '';
+    if (currentUnclusteredPopup) {
+      currentUnclusteredPopup.remove();
+      currentUnclusteredPopup = null;
+    }
+  });
+
+  // Click handler for unclustered points
+  map.on('click', 'unclustered-point', (e) => {
+    const feature = e.features[0];
+    const props = feature.properties;
+    const coords = feature.geometry.coordinates.slice();
+    const html = createPopupHTML(props);
+    
+    new mapboxgl.Popup({ offset: [0,-20] })
+      .setLngLat(coords)
+      .setHTML(html)
+      .addTo(map);
+  });
+}
+
+// Create HTML content for popups
+function createPopupHTML(props) {
+  return `
+    <strong>Category:</strong> ${props.Diplomacy_category}<br/>
+    <strong>From:</strong> ${props.Delivering_Country}<br/>
+    <strong>To:</strong> ${props.Receiving_Countries}<br/>
+    <strong>Year:</strong> ${props.Year}<br/>
+    ${props.Comments ? `<em>${props.Comments}</em>` : ''}
+  `;
+}
+
+// Set up spiderfy functionality
+function setupSpiderfyFunctionality(map) {
+  let currentSpiderPopup = null;
+  let largeClusterPopup = null;
+  let isSpiderfyingPrevented = false;
+  
+  // Create spiderfy instance with enhanced size parameters
+  const spiderfy = new Spiderfy(map, {
+    generateLeaves: true,
+    customMarkerCallback: createCustomMarker,
+    onLeafClick: handleLeafClick,
+    onLeafHover: handleLeafHover,
+    onLeafHoverEnd: handleLeafHoverEnd,
+    minZoomLevel: MAP_CONFIG.MIN_SPIDERFY_ZOOM,
+    maxZoomLevel: MAP_CONFIG.MAX_ZOOM,
+    zoomIncrement: 4.5,
+    circleSpiralSwitchover: 9,
+    // Increased separation for more spacing between markers
+    circleFootSeparation: 45,
+    // Larger spacing between spiral points
+    spiralFootSeparation: 50,
+    // Increased length factor for wider, longer spirals
+    spiralLengthFactor: 150,
+    // Increased starting length of spiral
+    spiralLengthStart: 75,
+    leafClassName: 'mapboxgl-spiderfy-leaf',
+    animate: true,
+    animationSpeed: 300,
+  });
+  
+  // Apply spiderfy to cluster layer
+  console.log("Applying spiderfy to clusters");
+  spiderfy.applyTo('clusters');
+  console.log("Spiderfy applied successfully");
+  
+  // Custom marker creation function for spiderfied points - enlarged for better visibility
+  function createCustomMarker(feature) {
+    const category = feature.properties.Diplomacy_category;
+    const iconInfo = categoryIcons[category] || defaultIcon;
+    
+    const el = document.createElement('div');
+    el.className = 'custom-marker';
+    
+    const testImg = new Image();
+    testImg.onload = () => {
+      el.style.backgroundImage = `url(${iconInfo.url})`;
+    };
+    testImg.onerror = () => {
+      const hash = category ? 
+        category.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0) : 
+        0;
+      const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+      
+      el.style.backgroundColor = color;
+      el.style.border = '3px solid white';
+      el.style.borderRadius = '50%';
+    };
+    testImg.src = iconInfo.url;
+    
+    // Increased marker size from 30px to 40px
+    el.style.width = '40px';
+    el.style.height = '40px';
+    el.style.cursor = 'pointer';
+    el.title = category || 'Unknown';
+    
+    return el;
+
+    function createCustomMarker(feature) {
+      const category = feature.properties.Diplomacy_category;
+      const iconInfo = categoryIcons[category] || defaultIcon;
+      
+      const el = document.createElement('div');
+      el.className = 'custom-marker';
+      
+      // Try to load the category icon
+      const testImg = new Image();
+      testImg.onload = () => {
+        el.style.backgroundImage = `url(${iconInfo.url})`;
+      };
+      testImg.onerror = () => {
+        // If icon doesn't load, use red color background
+        el.style.backgroundColor = '#ff0000';  // Red color
+        el.style.border = '3px solid white';
+        el.style.borderRadius = '50%';
+      };
+      testImg.src = iconInfo.url;
+      
+      // Set default styles
+      el.style.width = '36px';
+      el.style.height = '36px';
+      el.style.cursor = 'pointer';
+      el.title = category || 'Unknown';
+      
+      return el;
+    }
+  }
+  
+  // Handle leaf click
+  function handleLeafClick(feature) {
+    const coords = feature.geometry.coordinates;
+    const props = feature.properties;
+    const html = createPopupHTML(props);
+    
+    new mapboxgl.Popup({ offset: [0,-20] })
+      .setLngLat(coords)
+      .setHTML(html)
+      .addTo(map);
+  }
+  
+  // Handle leaf hover
+  function handleLeafHover(feature, event) {
+    if (currentSpiderPopup) currentSpiderPopup.remove();
+    const lngLat = map.unproject(event.point);
+    const props = feature.properties;
+    const html = createPopupHTML(props);
+    
+    currentSpiderPopup = new mapboxgl.Popup({ 
+      offset: [0,-20], 
+      closeButton: false, 
+      closeOnClick: false 
+    })
+      .setLngLat(lngLat)
+      .setHTML(html)
+      .addTo(map);
+  }
+  
+  // Handle leaf hover end
+  function handleLeafHoverEnd() {
+    if (currentSpiderPopup) {
+      currentSpiderPopup.remove();
+      currentSpiderPopup = null;
+    }
+  }
+  
+  // Custom click handler for clusters
+  map.on('click', 'clusters', (e) => {
+    const currentZoom = map.getZoom();
+    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+    const clusterId = features[0].properties.cluster_id;
+    const pointCount = features[0].properties.point_count;
+    const clusterCoords = features[0].geometry.coordinates;
+    
+    // Clear any existing large cluster popup
+    if (largeClusterPopup) {
+      largeClusterPopup.remove();
+      largeClusterPopup = null;
+    }
+    
+    // Check if we're at spiderfy zoom level
+    if (currentZoom >= MAP_CONFIG.MIN_SPIDERFY_ZOOM && currentZoom <= MAP_CONFIG.MAX_ZOOM) {
+      // Only proceed with spiderfy if point count is under threshold
+      if (pointCount >= MAP_CONFIG.MAX_SPIDERFY_POINTS) {
+        // Too many points - show a message and zoom in further
+        largeClusterPopup = new mapboxgl.Popup()
+          .setLngLat(clusterCoords)
+          .setHTML(`<p>Too many points to display (${pointCount}). Zooming in further.</p>`)
+          .addTo(map);
+        
+        // Set a flag to prevent spiderfying
+        isSpiderfyingPrevented = true;
+        
+        // Zoom in more to break up the cluster
+        map.easeTo({
+          center: clusterCoords,
+          zoom: Math.min(currentZoom + 1.5, MAP_CONFIG.MAX_ZOOM)
+        });
+        
+        // Clear the prevention flag after a short delay
+        setTimeout(() => {
+          isSpiderfyingPrevented = false;
+        }, 1000);
+        
+        return;
+      }
+      
+      // Allow spiderfying for smaller clusters (let default handler work)
+      if (!isSpiderfyingPrevented) {
+        return;
+      }
+    } else if (currentZoom < MAP_CONFIG.INTERMEDIATE_ZOOM) {
+      // From initial zoom to intermediate zoom
+      map.easeTo({
+        center: clusterCoords,
+        zoom: MAP_CONFIG.INTERMEDIATE_ZOOM
+      });
+    } else if (currentZoom < MAP_CONFIG.MIN_SPIDERFY_ZOOM) {
+      // From intermediate zoom to spiderfy zoom
+      map.easeTo({
+        center: clusterCoords,
+        zoom: MAP_CONFIG.MIN_SPIDERFY_ZOOM
+      });
+    }
+  });
+  
+  // Intercept cluster clicks for the Spiderfy library
+  const originalSpiderfyClick = spiderfy._handleClusterClick;
+  spiderfy._handleClusterClick = function(e) {
+    // Get cluster details
+    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+    if (features.length > 0) {
+      const pointCount = features[0].properties.point_count;
+      
+      // Only allow spiderfying if point count is under threshold
+      if (pointCount < MAP_CONFIG.MAX_SPIDERFY_POINTS && !isSpiderfyingPrevented) {
+        originalSpiderfyClick.call(this, e);
+      }
+    }
+  };
+}
+
+// Return CSS string for custom markers with enhanced styling
+function getCustomCSS() {
+  return `
+    .custom-marker {
+      cursor: pointer;
+      z-index: 2;
+      background-size: contain;
+      background-position: center;
+      background-repeat: no-repeat;
+      width: 40px;
+      height: 40px;
+      position: relative;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+    
+    /* Make sure spiderfied markers are visible */
+    .mapboxgl-spiderfy-leaf {
+      z-index: 100 !important;
+    }
+    
+    /* Ensure proper positioning of markers */
+    .mapboxgl-marker {
+      cursor: pointer;
+    }
+    
+    /* Lines to connect spiderfied points to center - thicker and more visible */
+    .mapboxgl-spiderfy-line {
+      z-index: 90 !important;
+      stroke-width: 3 !important;
+      stroke: #444 !important;
+      opacity: 0.7 !important;
+    }
+    
+    /* Enhanced animation for markers */  
+    .mapboxgl-spiderfy-leaf .custom-marker {
+      animation: pulse 2s infinite;
+      transform-origin: center;
+    }
+    
+    @keyframes pulse {
+      0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(0,0,0,0.4);
+      }
+      50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 0 5px rgba(0,0,0,0);
+      }
+      100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(0,0,0,0);
+      }
+    }
+  `;
 }
