@@ -100,12 +100,31 @@ function App() {
             }
           });
 
-          // Instantiate Spiderfy for symbol-based clusters
-          const spiderfy = new Spiderfy(map, {
-            onLeafClick: feature => console.log('Leaf clicked →', feature),
-            minZoomLevel: 0,
-            zoomIncrement: 2
-          });
+// Instantiate Spiderfy for symbol-based clusters
+const spiderfy = new Spiderfy(map, {
+  onLeafClick: feature => {
+    // Show popup when a spidered point is clicked
+    const props = feature.properties;
+    const coords = feature.geometry.coordinates.slice();
+
+    const html = `
+      <strong>Category:</strong> ${props.Diplomacy_category}<br/>
+      <strong>From:</strong> ${props.Delivering_Country}<br/>
+      <strong>To:</strong> ${props.Receiving_Countries}<br/>
+      <strong>Year:</strong> ${props.Year}<br/>
+      ${props.Comments ? `<em>${props.Comments}</em>` : ''}
+    `;
+
+    new mapboxgl.Popup()
+      .setLngLat(coords)
+      .setHTML(html)
+      .addTo(map);
+    
+    console.log('Leaf clicked →', feature);
+  },
+  minZoomLevel: 0,
+  zoomIncrement: 2
+});
           spiderfy.applyTo('clusters');
           // inside your map.load callback, after spiderfy.applyTo('clusters'):
 registerPopups(map);
