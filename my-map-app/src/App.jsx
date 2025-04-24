@@ -1,10 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import Spiderfy from '@nazka/map-gl-js-spiderfy';
-// Add this import at the top of your App.jsx file, after the other imports:
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
-import './SpiderfyOverrides.css'; // Make sure this is added
 import { registerPopups } from './popups';
 
 // ========== CONFIGURATION ==========
@@ -31,16 +28,15 @@ const MAP_CONFIG = {
   CENTER: [163.7482, -12.7648],
   INITIAL_ZOOM: 3.5,
   INTERMEDIATE_ZOOM: 7.5,
-  MIN_SPIDERFY_ZOOM: 6.99,
+  MIN_ZOOM: 6.99,
   MAX_ZOOM: 13.01,
-  MAX_SPIDERFY_POINTS: 40,
+  MAX_CLUSTER_POINTS: 40,
   MAPBOX_TOKEN: 'pk.eyJ1IjoiYXJ0aHVyZG95bGUiLCJhIjoiY2xydjZ5eWtxMHBnZjJsbGVnem45bThkMSJ9.hdDK5cGCjnsrRacePPlabQ'
 };
 
 export default function App() { 
   // ========== STATE AND REFS ==========
   const mapRef = useRef(null);
-  const spiderfyRef = useRef(null);
   const mapContainerRef = useRef(null);
   const [center, setCenter] = useState(MAP_CONFIG.CENTER);
   const [zoom, setZoom] = useState(MAP_CONFIG.INITIAL_ZOOM);
@@ -84,7 +80,7 @@ export default function App() {
           
           // ========== EVENT HANDLERS ==========
           setupUnclusteredPointHandlers(map);
-          setupSpiderfyFunctionality(map);
+          setupClusterClickHandler(map);
           
           // ========== FALLBACK POPUPS ==========
           registerPopups(map);
@@ -96,16 +92,6 @@ export default function App() {
     });
 
     return () => map.remove();
-  }, []);
-
-  // ========== CUSTOM CSS ==========
-  useEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = getCustomCSS();
-    document.head.appendChild(style);
-    return () => {
-      document.head.removeChild(style);
-    };
   }, []);
 
   return (
@@ -285,7 +271,6 @@ function addUnclusteredPointLayer(map) {
         'Sports Diplomacy (Defence)', 'icon-sports-diplomacy',
         'Training', 'icon-training',
         'Visit Diplomacy (Defence)', 'icon-visit-diplomacy',
-        // Default icon for any other category
         'default'
       ],
       'icon-size': 0.5,
@@ -346,6 +331,39 @@ function setupUnclusteredPointHandlers(map) {
   });
 }
 
+// Basic handler for cluster clicks - just zooms in
+function setupClusterClickHandler(map) {
+  let largeClusterPopup = null;
+  
+  map.on('click', 'clusters', (e) => {
+    const currentZoom = map.getZoom();
+    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+    const pointCount = features[0].properties.point_count;
+    const clusterCoords = features[0].geometry.coordinates.slice();
+    
+    // Clear any existing popup
+    if (largeClusterPopup) {
+      largeClusterPopup.remove();
+      largeClusterPopup = null;
+    }
+    
+    // Staged zoom based on current level
+    if (currentZoom < MAP_CONFIG.INTERMEDIATE_ZOOM) {
+      // From initial zoom to intermediate zoom
+      map.easeTo({
+        center: clusterCoords,
+        zoom: MAP_CONFIG.INTERMEDIATE_ZOOM
+      });
+    } else {
+      // From intermediate zoom or higher, zoom in further
+      map.easeTo({
+        center: clusterCoords,
+        zoom: Math.min(currentZoom + 1.5, MAP_CONFIG.MAX_ZOOM)
+      });
+    }
+  });
+}
+
 // Create HTML content for popups
 function createPopupHTML(props) {
   return `
@@ -354,271 +372,5 @@ function createPopupHTML(props) {
     <strong>To:</strong> ${props.Receiving_Countries}<br/>
     <strong>Year:</strong> ${props.Year}<br/>
     ${props.Comments ? `<em>${props.Comments}</em>` : ''}
-  `;
-}
-
-// Set up spiderfy functionality
-function setupSpiderfyFunctionality(map) {
-  let currentSpiderPopup = null;
-  let largeClusterPopup = null;
-  let isSpiderfyingPrevented = false;
-  
-  // Create spiderfy instance with enhanced size parameters
-  const spiderfy = new Spiderfy(map, {
-    generateLeaves: true,
-    customMarkerCallback: createCustomMarker,
-    onLeafClick: handleLeafClick,
-    onLeafHover: handleLeafHover,
-    onLeafHoverEnd: handleLeafHoverEnd,
-    minZoomLevel: MAP_CONFIG.MIN_SPIDERFY_ZOOM,
-    maxZoomLevel: MAP_CONFIG.MAX_ZOOM,
-    zoomIncrement: 4.5,
-    circleSpiralSwitchover: 9,
-    // Increased separation for more spacing between markers
-    circleFootSeparation: 45,
-    // Larger spacing between spiral points
-    spiralFootSeparation: 50,
-    // Increased length factor for wider, longer spirals
-    spiralLengthFactor: 150,
-    // Increased starting length of spiral
-    spiralLengthStart: 75,
-    leafClassName: 'mapboxgl-spiderfy-leaf',
-    animate: true,
-    animationSpeed: 300,
-  });
-  
-  // Apply spiderfy to cluster layer
-  console.log("Applying spiderfy to clusters");
-  spiderfy.applyTo('clusters');
-  console.log("Spiderfy applied successfully");
-  
-  // Custom marker creation function for spiderfied points - enlarged for better visibility
-  function createCustomMarker(feature) {
-    const category = feature.properties.Diplomacy_category;
-    const iconInfo = categoryIcons[category] || defaultIcon;
-    
-    const el = document.createElement('div');
-    el.className = 'custom-marker';
-    
-    const testImg = new Image();
-    testImg.onload = () => {
-      el.style.backgroundImage = `url(${iconInfo.url})`;
-    };
-    testImg.onerror = () => {
-      const hash = category ? 
-        category.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0) : 
-        0;
-      const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
-      
-      el.style.backgroundColor = color;
-      el.style.border = '3px solid white';
-      el.style.borderRadius = '50%';
-    };
-    testImg.src = iconInfo.url;
-    
-    // Increased marker size from 30px to 40px
-    el.style.width = '40px';
-    el.style.height = '40px';
-    el.style.cursor = 'pointer';
-    el.title = category || 'Unknown';
-    
-    return el;
-
-    function createCustomMarker(feature) {
-      const category = feature.properties.Diplomacy_category;
-      const iconInfo = categoryIcons[category] || defaultIcon;
-      
-      const el = document.createElement('div');
-      el.className = 'custom-marker';
-      
-      // Try to load the category icon
-      const testImg = new Image();
-      testImg.onload = () => {
-        el.style.backgroundImage = `url(${iconInfo.url})`;
-      };
-      testImg.onerror = () => {
-        // If icon doesn't load, use red color background
-        el.style.backgroundColor = '#ff0000';  // Red color
-        el.style.border = '3px solid white';
-        el.style.borderRadius = '50%';
-      };
-      testImg.src = iconInfo.url;
-      
-      // Set default styles
-      el.style.width = '36px';
-      el.style.height = '36px';
-      el.style.cursor = 'pointer';
-      el.title = category || 'Unknown';
-      
-      return el;
-    }
-  }
-  
-  // Handle leaf click
-  function handleLeafClick(feature) {
-    const coords = feature.geometry.coordinates;
-    const props = feature.properties;
-    const html = createPopupHTML(props);
-    
-    new mapboxgl.Popup({ offset: [0,-20] })
-      .setLngLat(coords)
-      .setHTML(html)
-      .addTo(map);
-  }
-  
-  // Handle leaf hover
-  function handleLeafHover(feature, event) {
-    if (currentSpiderPopup) currentSpiderPopup.remove();
-    const lngLat = map.unproject(event.point);
-    const props = feature.properties;
-    const html = createPopupHTML(props);
-    
-    currentSpiderPopup = new mapboxgl.Popup({ 
-      offset: [0,-20], 
-      closeButton: false, 
-      closeOnClick: false 
-    })
-      .setLngLat(lngLat)
-      .setHTML(html)
-      .addTo(map);
-  }
-  
-  // Handle leaf hover end
-  function handleLeafHoverEnd() {
-    if (currentSpiderPopup) {
-      currentSpiderPopup.remove();
-      currentSpiderPopup = null;
-    }
-  }
-  
-  // Custom click handler for clusters
-  map.on('click', 'clusters', (e) => {
-    const currentZoom = map.getZoom();
-    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-    const clusterId = features[0].properties.cluster_id;
-    const pointCount = features[0].properties.point_count;
-    const clusterCoords = features[0].geometry.coordinates;
-    
-    // Clear any existing large cluster popup
-    if (largeClusterPopup) {
-      largeClusterPopup.remove();
-      largeClusterPopup = null;
-    }
-    
-    // Check if we're at spiderfy zoom level
-    if (currentZoom >= MAP_CONFIG.MIN_SPIDERFY_ZOOM && currentZoom <= MAP_CONFIG.MAX_ZOOM) {
-      // Only proceed with spiderfy if point count is under threshold
-      if (pointCount >= MAP_CONFIG.MAX_SPIDERFY_POINTS) {
-        // Too many points - show a message and zoom in further
-        largeClusterPopup = new mapboxgl.Popup()
-          .setLngLat(clusterCoords)
-          .setHTML(`<p>Too many points to display (${pointCount}). Zooming in further.</p>`)
-          .addTo(map);
-        
-        // Set a flag to prevent spiderfying
-        isSpiderfyingPrevented = true;
-        
-        // Zoom in more to break up the cluster
-        map.easeTo({
-          center: clusterCoords,
-          zoom: Math.min(currentZoom + 1.5, MAP_CONFIG.MAX_ZOOM)
-        });
-        
-        // Clear the prevention flag after a short delay
-        setTimeout(() => {
-          isSpiderfyingPrevented = false;
-        }, 1000);
-        
-        return;
-      }
-      
-      // Allow spiderfying for smaller clusters (let default handler work)
-      if (!isSpiderfyingPrevented) {
-        return;
-      }
-    } else if (currentZoom < MAP_CONFIG.INTERMEDIATE_ZOOM) {
-      // From initial zoom to intermediate zoom
-      map.easeTo({
-        center: clusterCoords,
-        zoom: MAP_CONFIG.INTERMEDIATE_ZOOM
-      });
-    } else if (currentZoom < MAP_CONFIG.MIN_SPIDERFY_ZOOM) {
-      // From intermediate zoom to spiderfy zoom
-      map.easeTo({
-        center: clusterCoords,
-        zoom: MAP_CONFIG.MIN_SPIDERFY_ZOOM
-      });
-    }
-  });
-  
-  // Intercept cluster clicks for the Spiderfy library
-  const originalSpiderfyClick = spiderfy._handleClusterClick;
-  spiderfy._handleClusterClick = function(e) {
-    // Get cluster details
-    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-    if (features.length > 0) {
-      const pointCount = features[0].properties.point_count;
-      
-      // Only allow spiderfying if point count is under threshold
-      if (pointCount < MAP_CONFIG.MAX_SPIDERFY_POINTS && !isSpiderfyingPrevented) {
-        originalSpiderfyClick.call(this, e);
-      }
-    }
-  };
-}
-
-// Return CSS string for custom markers with enhanced styling
-function getCustomCSS() {
-  return `
-    .custom-marker {
-      cursor: pointer;
-      z-index: 2;
-      background-size: contain;
-      background-position: center;
-      background-repeat: no-repeat;
-      width: 40px;
-      height: 40px;
-      position: relative;
-      box-shadow: 0 0 5px rgba(0,0,0,0.3);
-    }
-    
-    /* Make sure spiderfied markers are visible */
-    .mapboxgl-spiderfy-leaf {
-      z-index: 100 !important;
-    }
-    
-    /* Ensure proper positioning of markers */
-    .mapboxgl-marker {
-      cursor: pointer;
-    }
-    
-    /* Lines to connect spiderfied points to center - thicker and more visible */
-    .mapboxgl-spiderfy-line {
-      z-index: 90 !important;
-      stroke-width: 3 !important;
-      stroke: #444 !important;
-      opacity: 0.7 !important;
-    }
-    
-    /* Enhanced animation for markers */  
-    .mapboxgl-spiderfy-leaf .custom-marker {
-      animation: pulse 2s infinite;
-      transform-origin: center;
-    }
-    
-    @keyframes pulse {
-      0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(0,0,0,0.4);
-      }
-      50% {
-        transform: scale(1.15);
-        box-shadow: 0 0 0 5px rgba(0,0,0,0);
-      }
-      100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(0,0,0,0);
-      }
-    }
   `;
 }
