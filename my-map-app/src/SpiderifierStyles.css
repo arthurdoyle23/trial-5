@@ -6,6 +6,11 @@
   z-index: 10;
 }
 
+/* Make sure hover layer appears on top */
+.mapboxgl-canvas-container .mapboxgl-layer:last-child {
+  z-index: 2;
+}
+
 /* Basic styling for custom pins */
 .spider-point-circle {
   border-radius: 50%;
@@ -37,4 +42,28 @@ path.mapboxgl-spiderifier-leg-line {
 .mapboxgl-spiderifier-marker:hover,
 .spider-point-circle:hover {
   transform: scale(1.5);
+}
+
+/* Style for popups */
+.mapboxgl-popup-content {
+  padding: 15px;
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  max-width: 300px;
+}
+
+/* Custom popup styles for spider points */
+.custom-spider-popup {
+  transition: opacity 0.2s ease;
+}
+
+/* Animation for the hover effect */
+@keyframes icon-grow {
+  from { transform: scale(1); }
+  to { transform: scale(1.25); }
+}
+
+/* Apply animation to hovered icons */
+.icon-hover {
+  animation: icon-grow 0.2s forwards;
 }

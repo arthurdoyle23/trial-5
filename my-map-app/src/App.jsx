@@ -97,7 +97,7 @@ export default function App() {
           spiderifierRef.current = spiderifier;
           
           // ========== FALLBACK POPUPS ==========
-          registerPopups(map);
+          // These are now handled in setupUnclusteredPointHandlers
         })
         .catch(err => {
           console.error("Error loading icons:", err);
@@ -188,7 +188,13 @@ function loadAllIcons(map) {
     // Load category icons
     Object.values(categoryIcons).forEach(icon => {
       iconPromises.push(loadIcon(map, icon.url, icon.id));
+      
+      // Also load the hover version of each icon (larger version)
+      iconPromises.push(loadLargerIcon(map, icon.url, `${icon.id}-hover`));
     });
+    
+    // Load hover version of default icon
+    iconPromises.push(loadLargerIcon(map, defaultIcon.url, `${defaultIcon.id}-hover`));
     
     // Load cluster icon
     iconPromises.push(
@@ -238,6 +244,78 @@ function loadIcon(map, url, id) {
   });
 }
 
+// Loads a larger version of an icon for hover states
+function loadLargerIcon(map, url, id) {
+  return new Promise((resolve) => {
+    const testImg = new Image();
+    testImg.onload = () => {
+      console.log(`Loading larger icon ${id}`);
+      // Create a canvas to resize the icon
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Load the original image to get its dimensions
+      const img = new Image();
+      img.onload = () => {
+        // Make the icon 1.25x larger
+        const scaleFactor = 1.25;
+        canvas.width = img.width * scaleFactor;
+        canvas.height = img.height * scaleFactor;
+        
+        // Draw the resized image
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        // Add the resized image as a map icon
+        map.addImage(id, { 
+          width: canvas.width, 
+          height: canvas.height, 
+          data: ctx.getImageData(0, 0, canvas.width, canvas.height).data 
+        });
+        resolve();
+      };
+      img.onerror = () => {
+        console.error(`Failed to load image for larger icon ${id}`);
+        createFallbackLargerCircleIcon(map, id);
+        resolve();
+      };
+      img.src = url;
+    };
+    testImg.onerror = () => {
+      console.error(`Icon ${id} is not accessible - using fallback`);
+      createFallbackLargerCircleIcon(map, id);
+      resolve();
+    };
+    testImg.src = url;
+  });
+}
+
+// Creates a fallback larger circle icon for hover states
+function createFallbackLargerCircleIcon(map, iconId) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 30;  // Larger size
+  canvas.height = 30;
+  const ctx = canvas.getContext('2d');
+  
+  // Use the same color generation logic but make the circle larger
+  const baseIconId = iconId.replace('-hover', '');
+  const hash = baseIconId.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0);
+  const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+  
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(15, 15, 13, 0, 2 * Math.PI); // Larger circle
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2; // Slightly thicker border
+  ctx.stroke();
+  
+  map.addImage(iconId, { 
+    width: 30, 
+    height: 30, 
+    data: ctx.getImageData(0, 0, 30, 30).data 
+  });
+}
+
 // Add the data source to the map
 function addDataSource(map) {
   map.addSource('markers', {
@@ -280,6 +358,16 @@ function addClusterLayers(map) {
 
 // Add unclustered point layer to the map
 function addUnclusteredPointLayer(map) {
+  // Create a source with a unique id to store only the hovered feature
+  map.addSource('hover-point', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: []
+    }
+  });
+
+  // Regular unclustered points layer
   map.addLayer({
     id: 'unclustered-point', 
     type: 'symbol', 
@@ -317,6 +405,43 @@ function addUnclusteredPointLayer(map) {
       'icon-halo-blur': 1
     }
   });
+  
+  // Hover layer using the special hover icons
+  map.addLayer({
+    id: 'unclustered-point-hover',
+    type: 'symbol',
+    source: 'hover-point', // Use our dedicated hover source
+    layout: {
+      'icon-image': [
+        'match',
+        ['get', 'Diplomacy_category'],
+        // Match each category to its hover icon
+        'Arms control', 'icon-arms-control-hover',
+        'Cultural Diplomacy (Defence)', 'icon-cultural-diplomacy-hover',
+        'Defence Cooperation', 'icon-defence-cooperation-hover',
+        'Defence Infrastructure', 'icon-defence-infrastructure-hover',
+        'HADR – Disaster Response', 'icon-hadr-hover',
+        'Maritime Security', 'icon-maritime-security-hover',
+        'Military Exercises', 'icon-military-exercises-hover',
+        'Military Medical Diplomacy', 'icon-military-medical-hover',
+        'MIL-POL Engagement', 'icon-milpol-hover',
+        'Public Diplomacy', 'icon-public-diplomacy-hover',
+        'Sports Diplomacy (Defence)', 'icon-sports-diplomacy-hover',
+        'Training', 'icon-training-hover',
+        'Visit Diplomacy (Defence)', 'icon-visit-diplomacy-hover',
+        // Default hover icon
+        'default-hover'
+      ],
+      'icon-allow-overlap': true,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, 0]
+    },
+    paint: {
+      'icon-halo-color': '#ffffff',
+      'icon-halo-width': 2,
+      'icon-halo-blur': 1
+    }
+  });
 }
 
 // Setup event handlers for unclustered points
@@ -331,6 +456,12 @@ function setupUnclusteredPointHandlers(map) {
     const coords = feature.geometry.coordinates.slice();
     const html = createPopupHTML(props);
     
+    // Update the hover point source with this feature
+    map.getSource('hover-point').setData({
+      type: 'FeatureCollection',
+      features: [feature]
+    });
+    
     currentPopup = new mapboxgl.Popup({ 
       offset: [0,-20], 
       closeButton: false, 
@@ -344,6 +475,13 @@ function setupUnclusteredPointHandlers(map) {
   // Mouse leave handler for unclustered points
   map.on('mouseleave', 'unclustered-point', () => {
     map.getCanvas().style.cursor = '';
+    
+    // Clear the hover state by emptying the source
+    map.getSource('hover-point').setData({
+      type: 'FeatureCollection',
+      features: []
+    });
+    
     if (currentPopup) {
       currentPopup.remove();
       currentPopup = null;
