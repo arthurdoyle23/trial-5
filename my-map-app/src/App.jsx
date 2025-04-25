@@ -249,7 +249,7 @@ function loadLargerIcon(map, url, id) {
   return new Promise((resolve) => {
     const testImg = new Image();
     testImg.onload = () => {
-      console.log(`Loading larger icon ${id}`);
+      console.log(`Loading hover icon ${id}`);
       // Create a canvas to resize the icon
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
@@ -257,15 +257,14 @@ function loadLargerIcon(map, url, id) {
       // Load the original image to get its dimensions
       const img = new Image();
       img.onload = () => {
-        // Make the icon 1.25x larger
-        const scaleFactor = 1.25;
-        canvas.width = img.width * scaleFactor;
-        canvas.height = img.height * scaleFactor;
+        // Same size, but with extra padding at top for upward shift
+        canvas.width = img.width;
+        canvas.height = img.height + 3; // 3px padding at top
         
-        // Draw the resized image
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // Draw the image shifted up by 3px
+        ctx.drawImage(img, 0, 0, img.width, img.height);
         
-        // Add the resized image as a map icon
+        // Add the modified image as a map icon
         map.addImage(id, { 
           width: canvas.width, 
           height: canvas.height, 
@@ -289,30 +288,31 @@ function loadLargerIcon(map, url, id) {
   });
 }
 
-// Creates a fallback larger circle icon for hover states
+// Creates a fallback hover icon (shifted up) for hover states
 function createFallbackLargerCircleIcon(map, iconId) {
   const canvas = document.createElement('canvas');
-  canvas.width = 30;  // Larger size
-  canvas.height = 30;
+  canvas.width = 24;
+  canvas.height = 27; // Extra height for the shift
   const ctx = canvas.getContext('2d');
   
-  // Use the same color generation logic but make the circle larger
+  // Generate color based on id
   const baseIconId = iconId.replace('-hover', '');
   const hash = baseIconId.split('').reduce((a,b) => (((a << 5) - a) + b.charCodeAt(0))|0, 0);
   const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
   
+  // Draw the circle shifted up
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(15, 15, 13, 0, 2 * Math.PI); // Larger circle
+  ctx.arc(12, 12, 10, 0, 2 * Math.PI);
   ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2; // Slightly thicker border
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 1.5;
   ctx.stroke();
   
   map.addImage(iconId, { 
-    width: 30, 
-    height: 30, 
-    data: ctx.getImageData(0, 0, 30, 30).data 
+    width: 24, 
+    height: 27, 
+    data: ctx.getImageData(0, 0, 24, 27).data 
   });
 }
 
@@ -337,7 +337,7 @@ function addClusterLayers(map) {
     filter: ['has', 'point_count'],
     layout: { 
       'icon-image': 'cluster-icon', 
-      'icon-size': 0.6,
+      'icon-size': 0.8,
       'icon-allow-overlap': true 
     }
   });
@@ -394,7 +394,7 @@ function addUnclusteredPointLayer(map) {
         // Default icon for any other category
         'default'
       ],
-      'icon-size': 0.5,
+      'icon-size': 0.42,
       'icon-allow-overlap': true,
       'icon-anchor': 'bottom',
       'icon-offset': [0, 0]
@@ -432,6 +432,7 @@ function addUnclusteredPointLayer(map) {
         // Default hover icon
         'default-hover'
       ],
+      'icon-size': 0.42, // Match the size of regular icons
       'icon-allow-overlap': true,
       'icon-anchor': 'bottom',
       'icon-offset': [0, 0]
@@ -463,7 +464,7 @@ function setupUnclusteredPointHandlers(map) {
     });
     
     currentPopup = new mapboxgl.Popup({ 
-      offset: [0,-20], 
+      offset: [0,-40], // Increased offset to position popup higher above the icon
       closeButton: false, 
       closeOnClick: false 
     })
@@ -495,7 +496,7 @@ function setupUnclusteredPointHandlers(map) {
     const coords = feature.geometry.coordinates.slice();
     const html = createPopupHTML(props);
     
-    new mapboxgl.Popup({ offset: [0,-20] })
+    new mapboxgl.Popup({ offset: [0,-40] }) // Increased offset to position popup higher
       .setLngLat(coords)
       .setHTML(html)
       .addTo(map);
@@ -505,11 +506,16 @@ function setupUnclusteredPointHandlers(map) {
 // Create HTML content for popups
 function createPopupHTML(props) {
   return `
-    <strong>Category:</strong> ${props.Diplomacy_category}<br/>
-    <strong>From:</strong> ${props.Delivering_Country}<br/>
-    <strong>To:</strong> ${props.Receiving_Countries}<br/>
-    <strong>Year:</strong> ${props.Year}<br/>
-    ${props.Comments ? `<em>${props.Comments}</em>` : ''}
+    <div class="popup-container">
+      <h3 class="popup-title">${props.Diplomacy_category || 'Unknown Category'}</h3>
+      ${props.Comments ? `<p class="popup-description">${props.Comments}</p>` : ''}
+      <div class="popup-metadata">
+        <p><strong>From:</strong> ${props.Delivering_Country || 'Unknown'}</p>
+        <p><strong>To:</strong> ${props.Receiving_Countries || 'Unknown'}</p>
+        ${props.Year ? `<p><strong>Year:</strong> ${props.Year}</p>` : ''}
+        ${props.Source ? `<p><strong>Source:</strong> ${props.Source}</p>` : ''}
+      </div>
+    </div>
   `;
 }
 
@@ -541,12 +547,12 @@ function setupSpiderifier(map) {
     animationSpeed: 200,
     customPin: true,
     
-    // Spacing configuration - increased values for wider spread
+    // Spacing configuration - increased values for larger icons
     circleSpiralSwitchover: 9,
-    circleFootSeparation: 80,    // Increased from default 25
-    spiralFootSeparation: 80,    // Increased from default 28
-    spiralLengthStart: 30,       // Increased from default 15  
-    spiralLengthFactor: 10,      // Increased from default 4
+    circleFootSeparation: 120,    // Increased for larger icons
+    spiralFootSeparation: 120,    // Increased for larger icons
+    spiralLengthStart: 50,       // Increased for better spacing
+    spiralLengthFactor: 15,      // Increased for better spacing
     
     // This function is called for each leg when it's created
     initializeLeg: function(spiderLeg) {
@@ -561,14 +567,14 @@ function setupSpiderifier(map) {
         spiderLeg.elements.pin.removeChild(spiderLeg.elements.pin.firstChild);
       }
       
-      // Reset the pin element styles to control the hitbox exactly
-      spiderLeg.elements.pin.style.width = '24px';
-      spiderLeg.elements.pin.style.height = '24px';
+      // Make spiderfied icons larger
+      spiderLeg.elements.pin.style.width = '60px';
+      spiderLeg.elements.pin.style.height = '60px';
       spiderLeg.elements.pin.style.margin = '0';
       spiderLeg.elements.pin.style.padding = '0';
       spiderLeg.elements.pin.style.overflow = 'hidden';
       spiderLeg.elements.pin.style.position = 'absolute';
-      spiderLeg.elements.pin.style.transform = 'translate(-12px, -12px)'; // Center the pin
+      spiderLeg.elements.pin.style.transform = 'translate(-30px, -30px)'; // Center the pin
       spiderLeg.elements.pin.style.pointerEvents = 'auto'; // Ensure clicks are captured
       
       // Set the icon as the background of the pin element itself
@@ -586,26 +592,33 @@ function setupSpiderifier(map) {
       const comments = spiderLeg.feature.properties.Comments || '';
       
       const popupContent = `
-        <strong>Category:</strong> ${category}<br/>
-        <strong>From:</strong> ${from}<br/>
-        <strong>To:</strong> ${to}<br/>
-        <strong>Year:</strong> ${year}<br/>
-        ${comments ? `<em>${comments}</em>` : ''}
+        <div class="popup-container">
+          <h3 class="popup-title">${category || 'Unknown Category'}</h3>
+          ${comments ? `<p class="popup-description">${comments}</p>` : ''}
+          <div class="popup-metadata">
+            <p><strong>From:</strong> ${from || 'Unknown'}</p>
+            <p><strong>To:</strong> ${to || 'Unknown'}</p>
+            ${year ? `<p><strong>Year:</strong> ${year}</p>` : ''}
+            ${spiderLeg.feature.properties.Source ? `<p><strong>Source:</strong> ${spiderLeg.feature.properties.Source}</p>` : ''}
+          </div>
+        </div>
       `;
       
-      // Create a custom popup that follows the mouse - this avoids positioning issues
+      // Create a custom popup that follows the mouse
       const customPopup = document.createElement('div');
       customPopup.className = 'custom-spider-popup';
       customPopup.style.display = 'none';
       customPopup.style.position = 'absolute';
-      customPopup.style.backgroundColor = 'white';
-      customPopup.style.border = '1px solid #ccc';
-      customPopup.style.borderRadius = '4px';
-      customPopup.style.padding = '10px';
-      customPopup.style.boxShadow = '0 2px 7px 1px rgba(0,0,0,0.3)';
+      customPopup.style.backgroundColor = 'rgba(255, 255, 255, 0.85)';
+      customPopup.style.backdropFilter = 'blur(5px)';
+      customPopup.style.border = '1px solid rgba(0,0,0,0.05)';
+      customPopup.style.borderRadius = '8px';
+      customPopup.style.padding = '15px';
+      customPopup.style.boxShadow = '0 2px 7px 1px rgba(0,0,0,0.15)';
       customPopup.style.maxWidth = '300px';
       customPopup.style.zIndex = '10000';
       customPopup.style.pointerEvents = 'none'; // Let events pass through to the map
+      customPopup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       customPopup.innerHTML = popupContent;
       
       // Add close button
@@ -616,8 +629,11 @@ function setupSpiderifier(map) {
       closeButton.style.right = '5px';
       closeButton.style.border = 'none';
       closeButton.style.background = 'none';
-      closeButton.style.fontSize = '16px';
+      closeButton.style.fontSize = '18px';
+      closeButton.style.color = '#555';
       closeButton.style.cursor = 'pointer';
+      closeButton.style.padding = '5px';
+      closeButton.style.lineHeight = '1';
       closeButton.style.pointerEvents = 'auto'; // Allow clicks on the close button
       closeButton.onclick = function() {
         customPopup.style.display = 'none';
@@ -631,12 +647,12 @@ function setupSpiderifier(map) {
       // Add arrow at the bottom of the popup (will point to the pin)
       const arrow = document.createElement('div');
       arrow.style.position = 'absolute';
-      arrow.style.bottom = '-8px';
+      arrow.style.bottom = '-10px';
       arrow.style.left = '50%';
-      arrow.style.marginLeft = '-8px';
-      arrow.style.borderLeft = '8px solid transparent';
-      arrow.style.borderRight = '8px solid transparent';
-      arrow.style.borderTop = '8px solid white';
+      arrow.style.marginLeft = '-10px';
+      arrow.style.borderLeft = '10px solid transparent';
+      arrow.style.borderRight = '10px solid transparent';
+      arrow.style.borderTop = '10px solid rgba(255, 255, 255, 0.85)';
       arrow.style.zIndex = '1'; // Ensure arrow appears in front
       arrow.style.width = '0';
       arrow.style.height = '0';
@@ -645,10 +661,10 @@ function setupSpiderifier(map) {
       
       // Add event listeners for hover
       spiderLeg.elements.pin.addEventListener('mouseenter', function(e) {
-        // Make the icon slightly larger on hover
-        spiderLeg.elements.pin.style.width = '30px';
-        spiderLeg.elements.pin.style.height = '30px';
-        spiderLeg.elements.pin.style.transform = 'translate(-15px, -15px)'; // Adjust center for larger size
+        // Very subtle movement upward on hover (shift up by 2px)
+        const originalTransform = 'translate(-30px, -30px)';
+        const hoverTransform = 'translate(-30px, -32px)';
+        spiderLeg.elements.pin.style.transform = hoverTransform;
         spiderLeg.elements.pin.style.zIndex = '1000';
         
         // Get dimensions and positions
@@ -661,9 +677,9 @@ function setupSpiderifier(map) {
         const popupWidth = customPopup.offsetWidth;
         const popupHeight = customPopup.offsetHeight;
         
-        // Position the popup directly above the pin
+        // Position the popup higher above the pin
         customPopup.style.left = `${rect.left + (rect.width / 2) - (popupWidth / 2)}px`;
-        customPopup.style.top = `${rect.top - popupHeight - 15}px`; // 15px offset from pin
+        customPopup.style.top = `${rect.top - popupHeight - 30}px`; // 30px offset from pin
         customPopup.style.visibility = 'visible';
         
         // Make sure arrow points to the center of the pin
@@ -672,10 +688,8 @@ function setupSpiderifier(map) {
       });
       
       spiderLeg.elements.pin.addEventListener('mouseleave', function() {
-        // Return to normal size
-        spiderLeg.elements.pin.style.width = '24px';
-        spiderLeg.elements.pin.style.height = '24px';
-        spiderLeg.elements.pin.style.transform = 'translate(-12px, -12px)';
+        // Return to original position
+        spiderLeg.elements.pin.style.transform = 'translate(-30px, -30px)';
         spiderLeg.elements.pin.style.zIndex = 'auto';
         
         // Hide the popup with a small delay to allow moving to popup

@@ -16,7 +16,14 @@ export function showFeaturePopup(map, feature) {
     <strong>Year:</strong> ${props.Year}<br/>
     ${props.Comments ? `<p>${props.Comments}</p>` : ''}
   `;
-  new mapboxgl.Popup().setLngLat(coords).setHTML(html).addTo(map);
+  
+  new mapboxgl.Popup({
+    offset: [0, -40], // Offset only upward
+    anchor: 'bottom' // Always position popup above the marker
+  })
+  .setLngLat(coords)
+  .setHTML(html)
+  .addTo(map);
 }
 
 /**
