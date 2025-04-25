@@ -1,0 +1,40 @@
+/* SpiderifierStyles.css */
+
+/* Container for spiderfied markers */
+.mapboxgl-spiderifier-marker-container {
+  position: absolute;
+  z-index: 10;
+}
+
+/* Basic styling for custom pins */
+.spider-point-circle {
+  border-radius: 50%;
+  border: 1px solid white;
+  box-shadow: 0 0 2px rgba(0,0,0,0.5);
+}
+
+/* These styles will apply if we switch back to using custom markers */
+.mapboxgl-spiderifier-marker {
+  background-color: #ff0000;
+  border: 2px solid white;
+  border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease;
+}
+
+/* Blue color for the connecting lines (this may be overridden by inline styles) */
+path.mapboxgl-spiderifier-leg-line {
+  stroke: #0066ff !important;
+  stroke-width: 3 !important;
+  stroke-opacity: 0.8 !important;
+  fill: none !important;
+}
+
+/* Animation for hover effects */
+.mapboxgl-spiderifier-marker:hover,
+.spider-point-circle:hover {
+  transform: scale(1.5);
+}
