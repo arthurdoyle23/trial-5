@@ -1,7 +1,15 @@
+
 {
+  "homepage": "https://arthurdoyle23.github.io/trial-5",
+  "scripts": {
+  "predeploy": "npm run build",
+  "deploy": "gh-pages -d dist"
+  },
   "dependencies": {
-    "gh-pages": "^6.3.0",
     "mapbox-gl": "^3.11.0",
     "mapboxgl-spiderifier": "^1.0.10"
+    
+    
   }
 }
+
