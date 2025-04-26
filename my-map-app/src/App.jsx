@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import MapboxglSpiderifier from 'mapboxgl-spiderifier';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -41,18 +41,302 @@ export default function App() {
   const mapRef = useRef(null);
   const spiderifierRef = useRef(null);
   const mapContainerRef = useRef(null);
+  const originalDataRef = useRef(null);
   const [center, setCenter] = useState(MAP_CONFIG.CENTER);
   const [zoom, setZoom] = useState(MAP_CONFIG.INITIAL_ZOOM);
-
-  // Function to manually unspiderfy - useful for debugging
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Filter states
+  const [allData, setAllData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]);
+  const [selectedCategories, setSelectedCategories] = useState({});
+  const [selectedCountries, setSelectedCountries] = useState({});
+  const [categoryList, setCategoryList] = useState([]);
+  const [countryList, setCountryList] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilterCount, setActiveFilterCount] = useState(0);
+  const [showFilterPopup, setShowFilterPopup] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  
+  // Year filter specific states
+  const [yearRange, setYearRange] = useState([0, 3000]); // Default for filter popup
+  const [availableYearRange, setAvailableYearRange] = useState([0, 3000]);
+  const [selectedYear, setSelectedYear] = useState(null); // For year slider at map bottom
+  const [showAllYears, setShowAllYears] = useState(true);
+  const [availableYears, setAvailableYears] = useState([]);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // Function to toggle sidebar
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
+  
+  // Function to manually unspiderfy
   const unspiderfyManually = () => {
     if (spiderifierRef.current) {
       console.log("Manually unspiderfying");
       spiderifierRef.current.unspiderfy();
     }
   };
+  
+  // Function to fetch and process the data
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await fetch('/data/mock-nyc-points.geojson');
+      const data = await response.json();
+      
+      // Store the original data
+      originalDataRef.current = data;
+      
+      // Extract features for list view
+      const features = data.features || [];
+      setAllData(features);
+      setFilteredData(features);
+      
+      // Extract unique categories, countries, and years
+      const categories = new Set();
+      const countries = new Set();
+      const years = [];
+      const uniqueYears = new Set();
+      
+      features.forEach(feature => {
+        const category = feature.properties.Diplomacy_category;
+        const country = feature.properties.Delivering_Country;
+        const year = feature.properties.Year;
+        
+        if (category) categories.add(category);
+        if (country) countries.add(country);
+        if (year && !isNaN(parseInt(year))) {
+          const numYear = parseInt(year);
+          years.push(numYear);
+          uniqueYears.add(numYear);
+        }
+      });
+      
+      // Determine year range
+      const minYear = years.length ? Math.min(...years) : 0;
+      const maxYear = years.length ? Math.max(...years) : 3000;
+      setAvailableYearRange([minYear, maxYear]);
+      setYearRange([minYear, maxYear]);
+      
+      // Set available years for the bottom slider (sorted)
+      const sortedYears = Array.from(uniqueYears).sort((a, b) => a - b);
+      setAvailableYears(sortedYears);
+      
+      // Convert sets to sorted arrays
+      const categoriesArray = Array.from(categories).sort();
+      const countriesArray = Array.from(countries).sort();
+      
+      // Initialize all checkboxes as selected
+      const initialCategoryState = {};
+      const initialCountryState = {};
+      
+      categoriesArray.forEach(cat => {
+        initialCategoryState[cat] = true;
+      });
+      
+      countriesArray.forEach(country => {
+        initialCountryState[country] = true;
+      });
+      
+      setCategoryList(categoriesArray);
+      setCountryList(countriesArray);
+      setSelectedCategories(initialCategoryState);
+      setSelectedCountries(initialCountryState);
+      setIsDataLoaded(true);
+      
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  }, []);
+  
+  // Apply filters to the data
+  const applyFilters = useCallback(() => {
+    if (!originalDataRef.current) return;
+    
+    // Copy original data
+    const newData = {
+      type: 'FeatureCollection',
+      features: []
+    };
+    
+    // Filter features based on selected categories, countries, and searchQuery
+    let filteredFeatures = originalDataRef.current.features.filter(feature => {
+      const category = feature.properties.Diplomacy_category;
+      const country = feature.properties.Delivering_Country;
+      
+      const categoryMatch = !category || selectedCategories[category];
+      const countryMatch = !country || selectedCountries[country];
+      
+      // Search query filter
+      let searchMatch = true;
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const props = feature.properties;
+        searchMatch = 
+          (props.Diplomacy_category && props.Diplomacy_category.toLowerCase().includes(query)) ||
+          (props.Delivering_Country && props.Delivering_Country.toLowerCase().includes(query)) ||
+          (props.Receiving_Countries && props.Receiving_Countries.toLowerCase().includes(query)) ||
+          (props.Comments && props.Comments.toLowerCase().includes(query)) ||
+          (props.Year && props.Year.toString().includes(query));
+      }
+      
+      return categoryMatch && countryMatch && searchMatch;
+    });
+    
+    // Apply year filtering (from the bottom slider) if not showing all years
+    if (!showAllYears && selectedYear !== null) {
+      filteredFeatures = filteredFeatures.filter(feature => {
+        const featureYear = feature.properties.Year ? parseInt(feature.properties.Year) : null;
+        return featureYear === selectedYear;
+      });
+    }
+    
+    // Update the filtered list for the sidebar
+    setFilteredData(filteredFeatures);
+    
+    // Add filtered features to new data object
+    newData.features = filteredFeatures;
+    
+    // Update the map source if map exists
+    if (mapRef.current) {
+      const source = mapRef.current.getSource('markers');
+      if (source) {
+        source.setData(newData);
+      }
+      
+      // Unspiderfy when filters change
+      if (spiderifierRef.current) {
+        spiderifierRef.current.unspiderfy();
+      }
+    }
+  }, [selectedCategories, selectedCountries, searchQuery, selectedYear, showAllYears]);
+  
+  // Handle category filter change
+  const handleCategoryChange = (category, checked) => {
+    setSelectedCategories(prev => ({
+      ...prev,
+      [category]: checked
+    }));
+  };
+  
+  // Handle country filter change
+  const handleCountryChange = (country, checked) => {
+    setSelectedCountries(prev => ({
+      ...prev,
+      [country]: checked
+    }));
+  };
+  
+  // Handle search query change
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+  };
+  
+  // Select/Deselect all categories
+  const handleSelectAllCategories = (select) => {
+    const newState = {};
+    categoryList.forEach(cat => {
+      newState[cat] = select;
+    });
+    setSelectedCategories(newState);
+  };
+  
+  // Select/Deselect all countries
+  const handleSelectAllCountries = (select) => {
+    const newState = {};
+    countryList.forEach(country => {
+      newState[country] = select;
+    });
+    setSelectedCountries(newState);
+  };
+  
+  // Toggle filter popup
+  const toggleFilterPopup = () => {
+    setShowFilterPopup(!showFilterPopup);
+  };
+  
+  // Toggle statistics panel
+  const toggleStats = () => {
+    setShowStats(!showStats);
+  };
+  
+  // Toggle showing all years vs specific year
+  const toggleAllYears = () => {
+    setShowAllYears(!showAllYears);
+    if (showAllYears) {
+      // If switching from all years to specific year, select the first available
+      setSelectedYear(availableYears.length > 0 ? availableYears[0] : null);
+    } else {
+      // If switching to all years, clear the selection
+      setSelectedYear(null);
+    }
+  };
+  
+  // Set the selected year and ensure all years mode is off
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    setShowAllYears(false);
+  };
+  
+  // Handle click on a list item to fly to its location
+  const handleListItemClick = (feature) => {
+    if (mapRef.current) {
+      const coordinates = feature.geometry.coordinates.slice();
+      
+      // Unspiderfy first
+      if (spiderifierRef.current) {
+        spiderifierRef.current.unspiderfy();
+      }
+      
+      // Fly to the location
+      mapRef.current.flyTo({
+        center: coordinates,
+        zoom: 10,
+        speed: 1.2
+      });
+      
+      // Show popup after a short delay to ensure map has moved
+      setTimeout(() => {
+        new mapboxgl.Popup({
+          offset: [0, -40]
+        })
+          .setLngLat(coordinates)
+          .setHTML(createPopupHTML(feature.properties))
+          .addTo(mapRef.current);
+      }, 1000);
+    }
+  };
+  
+  // Apply filters whenever selected filters change
+  useEffect(() => {
+    if (isDataLoaded) {
+      applyFilters();
+      
+      // Count active filters (excluding year filter which is now at bottom)
+      let count = 0;
+      
+      // Count unchecked categories
+      Object.values(selectedCategories).forEach(isSelected => {
+        if (!isSelected) count++;
+      });
+      
+      // Count unchecked countries
+      Object.values(selectedCountries).forEach(isSelected => {
+        if (!isSelected) count++;
+      });
+      
+      // Check search query
+      if (searchQuery) count++;
+      
+      setActiveFilterCount(count);
+    }
+  }, [applyFilters, isDataLoaded, selectedCategories, selectedCountries, searchQuery, selectedYear, showAllYears]);
 
   useEffect(() => {
+    // Fetch data when component mounts
+    fetchData();
+    
     // ========== MAP INITIALIZATION ==========
     mapboxgl.accessToken = MAP_CONFIG.MAPBOX_TOKEN;
 
@@ -95,9 +379,6 @@ export default function App() {
           // ========== SPIDERIFIER SETUP ==========
           const spiderifier = setupSpiderifier(map);
           spiderifierRef.current = spiderifier;
-          
-          // ========== FALLBACK POPUPS ==========
-          // These are now handled in setupUnclusteredPointHandlers
         })
         .catch(err => {
           console.error("Error loading icons:", err);
@@ -106,28 +387,320 @@ export default function App() {
     });
 
     return () => map.remove();
-  }, []);
+  }, [fetchData]);
 
   return (
     <>
-      <div className="sidebar">
-        Lon: {center[0].toFixed(4)} | Lat: {center[1].toFixed(4)} | Zoom: {zoom.toFixed(2)}
-        <button
-          onClick={unspiderfyManually}
-          style={{
-            marginLeft: '10px',
-            padding: '5px 10px',
-            background: '#f44336',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Unspiderfy
-        </button>
+      <div className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <div className="sidebar-header">
+          <h2>Defence Diplomacy Tracker</h2>
+          <div className="sidebar-actions">
+            <button 
+              className={`action-button ${activeFilterCount > 0 ? 'has-active-filters' : ''}`}
+              onClick={toggleFilterPopup}
+            >
+              <span className="button-icon">🔍</span>
+              Filters {activeFilterCount > 0 && <span className="filter-badge">{activeFilterCount}</span>}
+            </button>
+            <button 
+              className="action-button"
+              onClick={toggleStats}
+            >
+              <span className="button-icon">📊</span>
+              Stats
+            </button>
+          </div>
+        </div>
+        
+        <div className="entries-list">
+          <h3>Events ({filteredData.length})</h3>
+          {filteredData.length === 0 ? (
+            <p>No events match your filters.</p>
+          ) : (
+            filteredData.map((feature, index) => (
+              <div 
+                key={index} 
+                className="entry-item" 
+                onClick={() => handleListItemClick(feature)}
+              >
+                <div className="entry-title">
+                  {feature.properties.Diplomacy_category || 'Unknown Category'}
+                </div>
+                <div className="entry-subtitle">
+                  {feature.properties.Delivering_Country || 'Unknown'} → {feature.properties.Receiving_Countries || 'Unknown'}
+                  {feature.properties.Year ? ` (${feature.properties.Year})` : ''}
+                </div>
+                {feature.properties.Comments && (
+                  <div className="entry-description">
+                    {feature.properties.Comments.length > 100 
+                      ? `${feature.properties.Comments.substring(0, 100)}...` 
+                      : feature.properties.Comments}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        
+        {/* Filter Popup */}
+        {showFilterPopup && (
+          <div className="filter-popup">
+            <div className="filter-popup-header">
+              <h3>Filter Options</h3>
+              <button className="close-button" onClick={toggleFilterPopup}>×</button>
+            </div>
+            
+            <div className="filter-popup-content">
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search events..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+              />
+              
+              <div className="filter-group">
+                <h3>
+                  Diplomacy Categories
+                  <div className="filter-buttons">
+                    <button onClick={() => handleSelectAllCategories(true)}>All</button>
+                    <button onClick={() => handleSelectAllCategories(false)}>None</button>
+                  </div>
+                </h3>
+                <div className="checkbox-container">
+                  {categoryList.map(category => (
+                    <div key={category} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        id={`category-${category}`}
+                        checked={selectedCategories[category] || false}
+                        onChange={(e) => handleCategoryChange(category, e.target.checked)}
+                      />
+                      <label htmlFor={`category-${category}`}>{category}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="filter-group">
+                <h3>
+                  Delivering Countries
+                  <div className="filter-buttons">
+                    <button onClick={() => handleSelectAllCountries(true)}>All</button>
+                    <button onClick={() => handleSelectAllCountries(false)}>None</button>
+                  </div>
+                </h3>
+                <div className="checkbox-container">
+                  {countryList.map(country => (
+                    <div key={country} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        id={`country-${country}`}
+                        checked={selectedCountries[country] || false}
+                        onChange={(e) => handleCountryChange(country, e.target.checked)}
+                      />
+                      <label htmlFor={`country-${country}`}>{country}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="filter-actions">
+                <button 
+                  className="filter-reset-button" 
+                  onClick={() => {
+                    handleSelectAllCategories(true);
+                    handleSelectAllCountries(true);
+                    setYearRange([availableYearRange[0], availableYearRange[1]]);
+                    setSearchQuery('');
+                    toggleFilterPopup();
+                  }}
+                >
+                  Reset All Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Statistics Panel */}
+        {showStats && (
+          <div className="stats-panel">
+            <div className="stats-panel-header">
+              <h3>Event Statistics</h3>
+              <button className="close-button" onClick={toggleStats}>×</button>
+            </div>
+            
+            <div className="stats-panel-content">
+              <div className="stats-summary">
+                <div className="stat-box">
+                  <span className="stat-value">{allData.length}</span>
+                  <span className="stat-label">Total Events</span>
+                </div>
+                <div className="stat-box">
+                  <span className="stat-value">{countryList.length}</span>
+                  <span className="stat-label">Countries</span>
+                </div>
+                <div className="stat-box">
+                  <span className="stat-value">{categoryList.length}</span>
+                  <span className="stat-label">Categories</span>
+                </div>
+              </div>
+              
+              <div className="stats-chart">
+                <h4>Events by Category</h4>
+                <div className="chart-container category-chart">
+                  {categoryList.map(category => {
+                    const count = allData.filter(f => 
+                      f.properties.Diplomacy_category === category
+                    ).length;
+                    const percentage = allData.length > 0 
+                      ? Math.round((count / allData.length) * 100) 
+                      : 0;
+                    
+                    return (
+                      <div key={category} className="chart-bar-item">
+                        <div className="chart-bar-label">{category}</div>
+                        <div className="chart-bar-container">
+                          <div 
+                            className="chart-bar" 
+                            style={{width: `${percentage}%`}}
+                          ></div>
+                          <span className="chart-bar-value">{count}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="stats-chart">
+                <h4>Top Delivering Countries</h4>
+                <div className="chart-container country-chart">
+                  {countryList
+                    .map(country => ({
+                      name: country,
+                      count: allData.filter(f => 
+                        f.properties.Delivering_Country === country
+                      ).length
+                    }))
+                    .sort((a, b) => b.count - a.count) // Sort by count in descending order
+                    .slice(0, 5) // Take top 5
+                    .map(({name: country, count}) => {
+                      const percentage = allData.length > 0 
+                        ? Math.round((count / allData.length) * 100) 
+                        : 0;
+                      
+                      return (
+                        <div key={country} className="chart-bar-item">
+                          <div className="chart-bar-label">{country}</div>
+                          <div className="chart-bar-container">
+                            <div 
+                              className="chart-bar" 
+                              style={{width: `${percentage}%`}}
+                            ></div>
+                            <span className="chart-bar-value">{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+              
+              <div className="stats-chart">
+                <h4>Events Timeline</h4>
+                <div className="chart-container timeline-chart">
+                  {/* Simplified timeline visualization */}
+                  <div className="timeline-years">
+                    {Array.from(new Set(allData
+                      .map(f => f.properties.Year)
+                      .filter(year => year !== undefined && year !== null)
+                      .sort())).map(year => {
+                        const yearCount = allData.filter(f => f.properties.Year === year).length;
+                        const maxCount = Math.max(...Array.from(new Set(allData
+                          .map(f => f.properties.Year)
+                          .filter(y => y !== undefined && y !== null)))
+                          .map(y => allData.filter(f => f.properties.Year === y).length));
+                        const heightPercentage = Math.max(10, (yearCount / maxCount) * 100);
+                        
+                        return (
+                          <div key={year} className="timeline-year">
+                            <div className="timeline-year-label">{year}</div>
+                            <div 
+                              className="timeline-bar" 
+                              style={{height: `${heightPercentage}%`}}
+                              title={`${yearCount} events in ${year}`}
+                            ></div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <div id="map-container" ref={mapContainerRef} />
+      
+      <button 
+        className={`sidebar-toggle ${sidebarCollapsed ? 'toggle-expanded' : ''}`}
+        onClick={toggleSidebar}
+      >
+        {sidebarCollapsed ? '»' : '«'}
+      </button>
+      
+      <div 
+        id="map-container" 
+        ref={mapContainerRef} 
+        className={sidebarCollapsed ? 'map-expanded' : ''}
+      />
+      
+      {/* Year Filter at bottom of map */}
+      {availableYears.length > 0 && (
+        <div className="year-filter">
+          <div className="year-filter-header">
+            <label>
+              <input 
+                type="checkbox" 
+                checked={showAllYears} 
+                onChange={toggleAllYears}
+              />
+              Show All Years
+            </label>
+            {!showAllYears && selectedYear && (
+              <span className="selected-year">{selectedYear}</span>
+            )}
+          </div>
+          {!showAllYears && (
+            <div className="year-slider-container">
+              <div className="year-ticks">
+                {availableYears.map(year => (
+                  <div 
+                    key={year} 
+                    className={`year-tick ${selectedYear === year ? 'active' : ''}`}
+                    style={{
+                      left: `${((year - availableYears[0]) / (availableYears[availableYears.length-1] - availableYears[0])) * 100}%`
+                    }}
+                    onClick={() => handleYearChange(year)}
+                    title={year}
+                  >
+                    <span className="year-tick-label">{year}</span>
+                  </div>
+                ))}
+              </div>
+              <input 
+                type="range"
+                min={0}
+                max={availableYears.length - 1}
+                value={selectedYear !== null ? availableYears.indexOf(selectedYear) : 0}
+                onChange={(e) => handleYearChange(availableYears[parseInt(e.target.value)])}
+                disabled={showAllYears}
+                className="year-slider-input"
+              />
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -464,9 +1037,10 @@ function setupUnclusteredPointHandlers(map) {
     });
     
     currentPopup = new mapboxgl.Popup({ 
-      offset: [0,-40], // Increased offset to position popup higher above the icon
+      offset: [0, -25], // Increased offset to position popup at top of icon
       closeButton: false, 
-      closeOnClick: false 
+      closeOnClick: false,
+      anchor: 'bottom' // Ensure popup appears above the marker
     })
       .setLngLat(coords)
       .setHTML(html)
@@ -496,7 +1070,10 @@ function setupUnclusteredPointHandlers(map) {
     const coords = feature.geometry.coordinates.slice();
     const html = createPopupHTML(props);
     
-    new mapboxgl.Popup({ offset: [0,-40] }) // Increased offset to position popup higher
+    new mapboxgl.Popup({ 
+      offset: [0, -25], // Increased offset to position popup at top of icon
+      anchor: 'bottom' // Always position popup above the marker
+    })
       .setLngLat(coords)
       .setHTML(html)
       .addTo(map);
@@ -677,12 +1254,13 @@ function setupSpiderifier(map) {
         const popupWidth = customPopup.offsetWidth;
         const popupHeight = customPopup.offsetHeight;
         
-        // Position the popup higher above the pin
-        customPopup.style.left = `${rect.left + (rect.width / 2) - (popupWidth / 2)}px`;
-        customPopup.style.top = `${rect.top - popupHeight - 30}px`; // 30px offset from pin
+        // Position popup directly above the icon
+        const iconCenterX = rect.left + (rect.width / 2);
+        customPopup.style.left = `${iconCenterX - (popupWidth / 2)}px`;
+        customPopup.style.top = `${rect.top - popupHeight - 15}px`; // Gap above icon
         customPopup.style.visibility = 'visible';
         
-        // Make sure arrow points to the center of the pin
+        // Position arrow at bottom center of popup
         arrow.style.left = '50%';
         arrow.style.transform = 'translateX(-50%)';
       });
