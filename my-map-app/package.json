@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "homepage": "https://arthurdoyle23.github.io/trial-5/",
   "scripts": {
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
