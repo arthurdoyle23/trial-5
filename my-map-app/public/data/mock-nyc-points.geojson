@@ -10247,19 +10247,20 @@
         "geometry": {
           "type": "Point",
           "coordinates": [
-            178.4244977,
-            "-18.14536377"
+            40.7128,
+            "74.0060"
           ]
         },
         "properties": {
-          "Year": 2023,
-          "Delivering_Country": "Nepal",
-          "Receiving_Countries": "Fiji",
-          "Diplomacy_category": "Visit Diplomacy (Defence)",
-          "Comments": "Nepal committed to working together with Fiji ",
-          "Source": "https://www.fbcnews.com.fj/news/nepal-committed-to-working-together-with-fiji/",
+          "Year": 2021,
+          "Delivering_Country": "Australia; New Zealand; United States of America",
+          "Receiving_Countries": "Papua New Guinea",
+          "Diplomacy_category": "Military Medical Diplomacy",
+          "Comments": "Small team makes big impact in PNG",
+          "Source": "https://www.defence.gov.au/news-events/news/2021-09-07/small-team-makes-big-impact-png",
           "Colour": "Specific"
         }
       }
     ]
   }
+  
